@@ -1,0 +1,508 @@
+pragma solidity ^0.4.24;
+
+library SafeMath {
+   function add(uint a, uint b) internal pure returns (uint c) {
+       c = a + b;
+       require(c >= a);
+   }
+   function sub(uint a, uint b) internal pure returns (uint c) {
+       require(b <= a);
+       c = a - b;
+   }
+   function mul(uint a, uint b) internal pure returns (uint c) {
+       c = a * b;
+       require(a == 0 || c / a == b);
+   }
+   function div(uint a, uint b) internal pure returns (uint c) {
+       require(b > 0);
+       c = a / b;
+   }
+}
+
+contract TiposClases {
+
+    //El unico problema no se pueden cambiar nombres de las clases.
+    //Pero se puede poenr en obsoleta y crear una nueva.  
+    address public manager;
+    struct tipo{
+        uint duracion;
+        uint coste;
+        bool obsoleta;
+        }
+    mapping (bytes32 => tipo) public claseTipoId;
+    mapping (bytes32 => bool) public existeTipoId;
+    bytes32[] tiposNombres;
+    constructor(address _manager) public {
+        manager = _manager;
+       
+        }
+     
+    function nuevoTipoDeClase(bytes32 _nombre, uint _dur,uint  _cost ) public {  
+        require (msg.sender == manager); 
+        require ((_cost == 1) || (_cost == 2));
+        require (existeTipoId[_nombre]==false);
+
+        tiposNombres.push(_nombre);        
+        tipo storage nuevaClase = claseTipoId[_nombre];
+        nuevaClase.duracion=_dur;
+        nuevaClase.coste = _cost;
+        nuevaClase.obsoleta = false;
+        existeTipoId[_nombre]=true;
+        }
+    
+    function modificarTipoClase(bytes32 _nombre, uint _dur, uint  _cost, bool _obs) public {   
+        require (msg.sender == manager); 
+        require ((_cost == 1) || (_cost == 2));
+        
+        tipo storage modClase = claseTipoId[_nombre];
+        modClase.duracion=_dur;
+        modClase.coste = _cost;
+        modClase.obsoleta = _obs;
+        }
+
+    function verInfoTipo(bytes32 _nombre) public view returns (uint, uint, bool){   
+        
+        tipo memory recClase = claseTipoId[_nombre];
+        uint _durRec = recClase.duracion;
+        uint _costRec = recClase.coste;
+        bool _obsoleta = recClase.obsoleta;
+
+        return(_durRec, _costRec, _obsoleta);
+        }
+   
+    function verNombresClases() public view returns (bytes32[]){   
+        return(tiposNombres);
+        }
+}
+
+contract FabricadorClases{
+  
+   using SafeMath for uint;
+    
+   address public manager;
+   address public fabricaDeEventos;
+   address public tiposClases;
+   uint public numClasesTot;
+   //el 0 somos nosotros, 1 prof, 2 alumnos. El total de controlDeGyms
+   //siempre igual a iniS.
+   uint[3] public controlDeGyms;
+   uint iniS;
+  
+   /*ALUMNOS*/
+   /*     ********************    */
+   mapping(uint=>alumnos) public alumnosId;
+   struct alumnos{
+       bytes32 nombreAl;
+       //int32 ratingAl;
+       //uint numClasesAl;
+       uint stockDeGymsAl;
+       mapping (address=>bool) apuntadoEnClase;
+       address[] clasesDelAlumno;
+   }
+  
+   /*PROFES*/
+   /*     ********************    */
+   mapping(address=>profesores) public dirProfesores;   
+   mapping(address=>bool) public checkProfesorDir;
+   struct profesores{
+       bytes32 nombreProf;
+       int ratingProf;
+       uint stockDeGymsProf;
+       uint numClases;
+       //string comentarios;
+      
+   }
+  
+    /*CLASES*/
+    /*     ********************    */
+    mapping(address=>clases) public claseId;
+    address[] public clasesTodas; 
+    struct clases{
+        address dirClase;
+        address profesorDeClase;
+        bool claseActiva;
+        uint alumnosIdsApuntados;
+        bytes32 tipoDeClase;
+    }
+    
+    constructor(uint initialSupply) public payable {
+        manager = msg.sender;
+        iniS = initialSupply;
+        fabricaDeEventos = address(this);
+        numClasesTot = 0;
+        controlDeGyms[0] = initialSupply;
+        crearContratoTipos();
+        }     
+  
+    function crearContratoTipos() internal {
+        require (msg.sender == manager);
+        require(tiposClases == 0);
+        tiposClases = new TiposClases(manager);
+        }   
+  
+       
+    
+    /*PROFES*/
+    /*     ********************    */
+    function creaNuevoProfesor(address _dirProfesor, bytes32 _nombre) public returns (bool){
+                
+        require (msg.sender != 0);
+        require (_nombre.length > 0);
+        
+        
+        profesores storage profesor = dirProfesores[_dirProfesor];
+        
+        require (profesor.nombreProf == "");
+        
+        profesor.nombreProf = _nombre;
+        profesor.ratingProf = 0;
+        profesor.stockDeGymsProf = 0;
+        profesor.numClases = 0 ;
+        //profesor.comentarios = "";
+        
+        checkProfesorDir[_dirProfesor]=true;
+        require(checkProfesorDir[_dirProfesor]);
+        return(checkProfesorDir[_dirProfesor]);
+        }
+
+    function datosProfesor(address _profesor) public view returns (bytes32, int, uint){
+        //require ((msg.sender == _profesor) || (msg.sender == manager)); esta linea no funciona habra que desdoblarla, 
+        //para controlarlos
+        require ((msg.sender == _profesor));
+        profesores memory profesor = dirProfesores[_profesor];
+        
+        bytes32 _nom = profesor.nombreProf;
+        int _rat =profesor.ratingProf;
+        uint ganancias = profesor.stockDeGymsProf;
+        return(_nom, _rat, ganancias);
+        }  
+
+    function datosProfesorNombreRating(address _profesor) public view returns (bytes32, int){
+        profesores memory profesor = dirProfesores[_profesor];
+        
+        bytes32 _nom = profesor.nombreProf;
+        int _rat =profesor.ratingProf;
+        
+        return(_nom, _rat);
+        }  
+    
+    
+    /*ALUMNOS*/
+    /*     ********************    */
+    function creaNuevoAlumno(uint _alumnoId, bytes32 _nombre) public returns (bool){
+        
+        require(_nombre.length > 0);
+        require (msg.sender == manager);
+        require (alumnosId[_alumnoId].nombreAl == "" );
+        
+        alumnos storage alumno = alumnosId[_alumnoId];
+        alumno.nombreAl = _nombre;
+        //alumno.ratingAl = 0;
+        //alumno.numClasesAl= 0;
+        
+        return(alumnosId[_alumnoId].nombreAl != "");
+        }
+
+        function verInfoAlumno(uint _alumnoId) public view returns(bytes32, uint){
+            require(_alumnoId > 0);
+            require (msg.sender == manager);
+            require (alumnosId[_alumnoId].nombreAl != "" );
+            alumnos storage alumno = alumnosId[_alumnoId];
+            bytes32 _nombre = alumno.nombreAl;
+            uint _stockG = alumno.stockDeGymsAl;
+            return(_nombre, _stockG );
+        } 
+
+        function verclasesDelAlumno(uint _alumnoId) public view returns(address[]){
+            require(_alumnoId > 0);
+            require (msg.sender == manager);
+            require (alumnosId[_alumnoId].nombreAl != "" );
+            alumnos storage alumno = alumnosId[_alumnoId];
+
+            address[] storage _clasesApunt = alumno.clasesDelAlumno;
+            return(_clasesApunt);
+        } 
+
+        
+        
+        function anadirFondosAlumnos(uint _idAlumno, uint _numTokens) public returns (bool){
+        
+        require (msg.sender == manager);
+        alumnos storage alumno = alumnosId[_idAlumno];
+        alumno.stockDeGymsAl = SafeMath.add(alumno.stockDeGymsAl, _numTokens);
+        
+        controlDeGyms[2] = SafeMath.add(controlDeGyms[2], _numTokens);
+        controlDeGyms[0] = SafeMath.sub(controlDeGyms[0], _numTokens);
+        
+        bool transferido = true;
+        
+        return (transferido);
+        }
+    
+    /*CLASES*/
+    /*     ********************    */
+    /*
+    // si la clase es simple 1 Gym, si es doble 2 Gyms
+    // simple significa de 45 min a 1:15 min
+    // doble de 1:15 min a 2 horas
+    // como maximo clases de 1h 45 min
+       */
+    function creaNuevaClase (bytes32 _nomTipo, uint _fechaHoraClase, uint _maxAlumnos, bytes32 _direccionClase,
+        address _profesorId) public {
+        
+        require (msg.sender == _profesorId);
+        require (checkProfesorDir[_profesorId]);
+        
+        
+        address nuevaClase = new Clase(_nomTipo, _fechaHoraClase, _maxAlumnos,
+                _direccionClase, _profesorId, manager, fabricaDeEventos, tiposClases);
+        
+            clasesTodas.push(nuevaClase);
+        clases storage clase = claseId[nuevaClase];
+        clase.dirClase = nuevaClase;
+        clase.profesorDeClase = _profesorId;
+        clase.alumnosIdsApuntados = 0;
+        clase.tipoDeClase = _nomTipo;
+        clase.claseActiva = true;
+        
+        //Igual mejor al cierre.
+        numClasesTot += 1;
+        
+        }
+        function verClasesCreadas() public view returns (address[]){
+            return clasesTodas;
+        }
+        
+    function agregarAlumnoClase(uint _Id, address _clase, uint cantidadGymsNec) external returns (bool, bytes32){
+  
+       require (alumnosId[_Id].nombreAl != "");
+      
+       alumnos storage alumno = alumnosId[_Id];
+       bytes32 _nombreTempAl=alumno.nombreAl;
+       require(alumno.apuntadoEnClase[_clase] == false);
+       require(alumno.stockDeGymsAl >= cantidadGymsNec);
+       alumno.stockDeGymsAl = SafeMath.sub(alumno.stockDeGymsAl,cantidadGymsNec);
+      
+       controlDeGyms[2] = SafeMath.sub(controlDeGyms[2], cantidadGymsNec);
+       controlDeGyms[0] = SafeMath.add(controlDeGyms[0], cantidadGymsNec);
+      
+       clases storage clase = claseId[_clase];
+       clase.alumnosIdsApuntados += 1;
+      
+       bool correcto = true;
+       return(correcto, _nombreTempAl);
+           }
+    function bajaAlumnoClase(uint _Id, address _clase, uint cantidadGymsDev) external returns (bool){
+    
+        alumnos storage alumno = alumnosId[_Id];
+        require(alumno.apuntadoEnClase[_clase] == true);
+        alumno.stockDeGymsAl = SafeMath.add(alumno.stockDeGymsAl,cantidadGymsDev);
+        bool correcto = true;
+        return(correcto);
+            }
+    
+    function cierreDeClase(int ratingdeClase, address _claseaAlCierre, uint _cost) external {
+    
+            clases storage clase = claseId[_claseaAlCierre]; 
+            profesores storage profeClaseACerrar= dirProfesores[clase.profesorDeClase];
+            clase.claseActiva = false;
+            profeClaseACerrar.ratingProf = profeClaseACerrar.ratingProf + ratingdeClase; 
+            pagarPorClaseAProfesor(clase.profesorDeClase, clase.alumnosIdsApuntados, _cost);
+            }
+
+    function pagarPorClaseAProfesor(address _profesor, uint numAlumnos, uint coste) internal
+        returns (bool){
+        
+        uint gymsACanjear = numAlumnos * coste;
+        
+        profesores storage profesor = dirProfesores[_profesor];
+        profesor.stockDeGymsProf= SafeMath.add(profesor.stockDeGymsProf, gymsACanjear);
+        controlDeGyms[1] = SafeMath.add(controlDeGyms[1], gymsACanjear);
+        controlDeGyms[0] = SafeMath.sub(controlDeGyms[0], gymsACanjear);
+        
+        bool transferido = true;
+        
+        return (transferido);
+        }
+    
+        //bloqueamos los pagos o la entrada de funciones inesperadas
+    
+    function () public payable {
+        revert();
+        }
+}
+
+contract Clase {
+ 
+   using SafeMath for uint;
+   address manager;
+   address public tipoDeLaClases;
+  
+    
+    bytes32 public nombreClase;
+    uint public duracion;
+    uint public costeClaseGyms;
+    uint public foto;
+    uint public fecha;
+    bytes32 public direccion;
+    bytes32 public nombreProf;
+    int public ratingProf;
+    address public addrProfesor;
+  
+   mapping (uint => bytes32) public alumnosIdNombre;
+   mapping (uint => bool) public alumnosIdEsta;
+   mapping (uint => bool) public alumnosIdVotado;
+  
+   uint public maxAlumnos;
+   uint public numAlumnos;
+   uint votos;
+
+   bool public permitidoAlumnos;
+   bool public claseAcabada;
+   bool public cierreDeLaClase;
+   address public addrClase = this;
+  
+   FabricadorClases public fabricaClase;
+   int ratingClaseCont=0;
+   
+       
+   constructor(bytes32 _nombre , uint _fechaHoraClase, uint _alumnosMax, bytes32 _direccionClase,
+        address _addrProfesor, address _manager, address _fabrica, address tipos) public payable {
+        
+        fabricaClase = FabricadorClases(_fabrica);
+        manager =_manager;
+                    
+        fecha = _fechaHoraClase; //En Unix
+        direccion = _direccionClase;
+        maxAlumnos = _alumnosMax;
+                    
+        (nombreProf, ratingProf) = fabricaClase.datosProfesorNombreRating(_addrProfesor);
+        addrProfesor = _addrProfesor;
+
+
+        bool obs;
+        bytes32 tipoParticular = _nombre;   
+        tipoDeLaClases = tipos;  
+        TiposClases _t = TiposClases(tipoDeLaClases);   
+        (duracion, costeClaseGyms, obs) = (_t.verInfoTipo(tipoParticular));
+        
+
+        cierreDeLaClase =false;
+        claseAcabada=false;
+        permitidoAlumnos=true;
+        }
+      
+      
+   function annadirAlumnos(uint _Id) cNoAcabada cAbierta public {
+  
+       require (permitidoAlumnos);
+       (bool correcto, bytes32 _nombreTemp) =
+       fabricaClase.agregarAlumnoClase(_Id, addrClase, costeClaseGyms);
+       require (correcto = true);
+
+       alumnosIdNombre[_Id] = _nombreTemp ;
+       alumnosIdEsta[_Id] = true;
+       alumnosIdVotado[_Id] = false;
+      
+       numAlumnos += 1;
+      
+       if (numAlumnos == maxAlumnos ){
+           permitidoAlumnos= false;
+           }
+       }
+      
+   //falta implementar penalizacio por cierre tardio
+   function bajaAlumno(uint _Id) cNoAcabada cAbierta public {
+  
+       require (alumnosIdEsta[_Id] == true);
+      
+       (bool correcto) =
+       fabricaClase.bajaAlumnoClase(_Id, addrClase, costeClaseGyms);
+       require (correcto = true);
+
+       delete(alumnosIdNombre[_Id]);
+       delete(alumnosIdEsta[_Id]);
+       delete(alumnosIdVotado[_Id]);
+     
+       numAlumnos -= 1;
+       permitidoAlumnos = true;
+      
+  
+       }
+   function profesorFinalizaClase() public cNoAcabada cAbierta  returns (bool) {
+       require ((msg.sender == addrProfesor) || (msg.sender == manager));
+       require (now >= (fecha + duracion));
+       claseAcabada = true;
+       return (claseAcabada);
+       }
+   function ratingClase(bool _valor, uint _alumno) public cAbierta {
+       require (msg.sender != addrProfesor);
+       require (claseAcabada == true);
+       require (alumnosIdEsta[_alumno]);
+      
+       int k;
+       if (_valor == true) {
+               k = 1;
+           } else{
+               k = -1;
+           }
+      
+       ratingClaseCont += k;
+       alumnosIdVotado[_alumno] = true;
+       votos += 1;
+       if (votos == numAlumnos){
+       fabricaClase.cierreDeClase(ratingClaseCont, addrClase, costeClaseGyms);
+           cierreDeLaClase = true;
+           claseAcabada=true;
+           permitidoAlumnos=false;
+           }
+
+       }
+   /*INDEPENDIENTEMENTE DE QUIEN HAYA VOTADO
+       AL FINAL DEL DIA DE LA CLASE SE CIERRA LA CLASE
+   */ 
+   function cierreFinDia() public cAbierta{
+       require (now >= (fecha + duracion));
+       require(msg.sender==manager);
+       fabricaClase.cierreDeClase(ratingClaseCont, addrClase, costeClaseGyms);
+           cierreDeLaClase = true;
+           claseAcabada=true;
+           permitidoAlumnos=false;
+      
+       }
+   /*El profesor "puede" cerrar la clase y cobrar
+       aunque el día no haya acabado SIEMPRE YB CUANDO
+       al menos el 25% de alumnos hayan votado
+       */     
+   function cierreProfesor() public cAbierta{
+      
+       require (numAlumnos==0);
+       uint checkAlum = votos*(10**10)/numAlumnos;
+       require (now >= (fecha + duracion));
+       require(msg.sender==manager);
+       require(checkAlum > 2500000000);
+       fabricaClase.cierreDeClase(ratingClaseCont, addrClase, costeClaseGyms);
+           cierreDeLaClase = true;
+           claseAcabada=true;
+           permitidoAlumnos=false;
+      
+       }  
+
+
+  
+   modifier cAbierta{
+       require(cierreDeLaClase=false);
+       _;
+       }
+   modifier cNoAcabada{
+       require(claseAcabada=false);
+       _;
+       }
+  
+   
+}
+
+
+
+
+
