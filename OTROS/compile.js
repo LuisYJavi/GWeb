@@ -1,4 +1,4 @@
-//LG probando Git
+//LG probando es muy majo y se entera de todo Git
 
 
 const path = require('path');
