@@ -4,7 +4,8 @@
   "description": "La página Web de Gyms",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "test",
+    "dev": "node server.js"
   },
   "repository": {
     "type": "git",
